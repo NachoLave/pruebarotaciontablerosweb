@@ -1,61 +1,122 @@
-const LINKS = [
-  "https://app.powerbi.com/groups/647f43d9-54a1-47ee-9e78-604bb84ac9ff/reports/01661e10-0139-4bee-bf88-1b96ba9d7f2e/44f3f26abe0a6fb92b24?experience=power-bi&chromeless=true", //Empleados - Altas y bajas
-        "https://app.powerbi.com/groups/647f43d9-54a1-47ee-9e78-604bb84ac9ff/reports/01661e10-0139-4bee-bf88-1b96ba9d7f2e/ReportSectionf9fe292b4b0b2244a793?experience=power-bi&chromeless=true", //Edad y Sexo
-        "https://app.powerbi.com/groups/647f43d9-54a1-47ee-9e78-604bb84ac9ff/reports/01661e10-0139-4bee-bf88-1b96ba9d7f2e/ReportSection7b34db0f300b875c8c1b?experience=power-bi&chromeless=true", //Antiguedad
-"https://app.powerbi.com/groups/647f43d9-54a1-47ee-9e78-604bb84ac9ff/reports/01661e10-0139-4bee-bf88-1b96ba9d7f2e/ReportSection1554dd7e053a66979e0b?experience=powerbi&chromeless=true", //empleados Dotacion
+const LINKS_ORIGINAL = [
+  // agregá tus URLs acá
+  "https://app.powerbi.com/groups/me/reports/7e9d3785-...etc..."
 ];
 
-const ROTATION_INTERVAL = 20000; // 20 segundos
-let index = 0;
-let popup = null;
-let timer = ROTATION_INTERVAL;
-let timerInterval;
-let rotationInterval;
-let paused = false;
+const ROTATION_TIME = 30; // segundos
+let intervalId = null;
+let countdown = ROTATION_TIME;
+let currentIndex = 0;
+let secondaryTab = null;
 
-const timerDisplay = document.getElementById("timer");
-const resumeBtn = document.getElementById("resumeBtn");
-const pauseBtn = document.getElementById("pauseBtn");
+const ROTOS_KEY = "tablerosRotos";
 
-function updateTimerDisplay() {
-    const seconds = Math.floor(timer / 1000);
-    timerDisplay.textContent = `00:${String(seconds).padStart(2, '0')}`;
+// --- UTILIDADES ---
+function getRotos() {
+  return JSON.parse(localStorage.getItem(ROTOS_KEY) || "[]");
 }
 
-function rotarTablero() {
-    if (!popup || popup.closed) {
-        popup = window.open(LINKS[index], "_blank", "width=1280,height=800,top=50,left=100");
-    } else {
-        popup.location.href = LINKS[index];
-        popup.focus();
-    }
-    index = (index + 1) % LINKS.length;
-    timer = ROTATION_INTERVAL;
+function addRoto(url) {
+  const actuales = getRotos();
+  if (!actuales.includes(url)) {
+    actuales.push(url);
+    localStorage.setItem(ROTOS_KEY, JSON.stringify(actuales));
+  }
 }
 
-function startRotacion() {
-    rotarTablero();
-    rotationInterval = setInterval(rotarTablero, ROTATION_INTERVAL);
-    timerInterval = setInterval(() => {
-        if (!paused) {
-            timer -= 1000;
-            if (timer <= 0) timer = ROTATION_INTERVAL;
-            updateTimerDisplay();
-        }
-    }, 1000);
+function clearRotos() {
+  localStorage.setItem(ROTOS_KEY, JSON.stringify([]));
 }
 
-function stopRotacion() {
-    paused = true;
+function getValidLinks() {
+  const rotos = getRotos();
+  return LINKS_ORIGINAL.filter(link => !rotos.includes(link));
 }
 
-function resumeRotacion() {
-    paused = false;
+// --- ROTACIÓN ---
+function updateTimer() {
+  const timer = document.getElementById("timer");
+  const minutes = String(Math.floor(countdown / 60)).padStart(2, "0");
+  const seconds = String(countdown % 60).padStart(2, "0");
+  timer.textContent = `${minutes}:${seconds}`;
 }
 
-resumeBtn.addEventListener("click", resumeRotacion);
-pauseBtn.addEventListener("click", stopRotacion);
+function openOrUpdateTab(url) {
+  if (!secondaryTab || secondaryTab.closed) {
+    secondaryTab = window.open(url, "_blank");
+  } else {
+    secondaryTab.location.href = url;
+  }
+}
 
-// Inicio
-updateTimerDisplay();
-startRotacion();
+function rotate() {
+  const validLinks = getValidLinks();
+  if (validLinks.length === 0) {
+    alert("No hay tableros válidos para mostrar.");
+    return;
+  }
+  if (currentIndex >= validLinks.length) currentIndex = 0;
+  openOrUpdateTab(validLinks[currentIndex]);
+  currentIndex = (currentIndex + 1) % validLinks.length;
+}
+
+function tick() {
+  countdown--;
+  updateTimer();
+  if (countdown <= 0) {
+    countdown = ROTATION_TIME;
+    rotate();
+  }
+}
+
+function startRotation() {
+  if (intervalId) return;
+  intervalId = setInterval(tick, 1000);
+}
+
+function pauseRotation() {
+  clearInterval(intervalId);
+  intervalId = null;
+}
+
+// --- DETECCIÓN DE ERROR ---
+function checkForError() {
+  const errorText = "No pudimos encontrar ese informe";
+  const elements = [...(secondaryTab?.document?.querySelectorAll("div, span, p") || [])];
+  const hasError = elements.some(el => el.textContent?.includes(errorText));
+  if (hasError) {
+    const url = secondaryTab.location.href;
+    console.warn("Tablero roto detectado:", url);
+    addRoto(url);
+    rotate(); // salta al siguiente
+  }
+}
+
+// --- ADMIN LISTA ROTA ---
+function mostrarTablerosRotos() {
+  const rotos = getRotos();
+  const content = rotos.length
+    ? rotos.map((url, i) => `${i + 1}. ${url}`).join("\n")
+    : "No hay tableros rotos.";
+
+  const win = window.open("", "TablerosRotos", "width=800,height=500");
+  win.document.write(`
+    <html><head><title>Tableros rotos</title>
+    <style>
+      body { font-family: Arial; padding: 20px; }
+      textarea { width: 100%; height: 300px; }
+      button { margin-top: 10px; padding: 10px; }
+    </style>
+    </head><body>
+    <h2>Tableros Rotos</h2>
+    <textarea readonly>${content}</textarea><br/>
+    <button onclick="localStorage.setItem('${ROTOS_KEY}', '[]'); alert('Lista limpiada'); location.reload();">Limpiar lista</button>
+    </body></html>
+  `);
+}
+
+// --- INICIO AUTOMÁTICO ---
+rotate();         // primer tablero
+updateTimer();    // muestra inicial
+startRotation();  // arranca rotación
+setInterval(checkForError, 5000); // chequea cada 5s
